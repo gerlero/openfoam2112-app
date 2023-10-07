@@ -60,7 +60,6 @@ VOLUME_ID_FILE = $(VOLUME)/.vol_id
 
 APP_CONTENTS = \
 	build/$(APP_NAME).app/Contents/Info.plist \
-	build/$(APP_NAME).app/Contents/MacOS/launch \
 	build/$(APP_NAME).app/Contents/Resources/etc/openfoam \
 	build/$(APP_NAME).app/Contents/Resources/etc/bashrc \
 	build/$(APP_NAME).app/Contents/Resources/LICENSE \
@@ -79,22 +78,25 @@ build/$(DIST_NAME).zip: build/$(APP_NAME).app
 	shasum -a 256 build/$(DIST_NAME).zip
 
 build/$(APP_NAME).app: $(APP_CONTENTS)
+	xattr -c -r $@
+	codesign --force --deep --sign - $@
 
-build/$(APP_NAME).app/Contents/Info.plist: Contents/Info.plist | build/$(APP_NAME).app/Contents/MacOS/launch build/$(APP_NAME).app/Contents/Resources/icon.icns
-	mkdir -p build/$(APP_NAME).app/Contents
-	cp Contents/Info.plist build/$(APP_NAME).app/Contents/
-	sed -i '' "s|{{APP_VERSION}}|$(APP_VERSION)|g" build/$(APP_NAME).app/Contents/Info.plist
-	sed -i '' "s|{{DEPENDENCIES_KIND}}|$(DEPENDENCIES_KIND)|g" build/$(APP_NAME).app/Contents/Info.plist
-	sed -i '' "s|{{ARCH}}|$(shell uname -m)|g" build/$(APP_NAME).app/Contents/Info.plist
+build/$(APP_NAME).app/Contents/Info.plist:
+	rm -rf build/$(APP_NAME).app
+	osacompile -o build/$(APP_NAME).app launch.applescript
+	plutil -replace CFBundleDevelopmentRegion -string "en" $@
+	plutil -insert CFBundleVersion -string "$(APP_VERSION)-$(DEPENDENCIES_KIND)-$(shell uname -m)" $@
+	plutil -insert CFBundleShortVersionString -string "$(APP_VERSION)" $@
+	plutil -replace CFBundleIconFile -string "icon.icns" $@
+	rm build/$(APP_NAME).app/Contents/Resources/applet.icns
 
-build/$(APP_NAME).app/Contents/Resources/etc/openfoam: Contents/Resources/etc/openfoam | build/$(APP_NAME).app/Contents/Resources/volume
+build/$(APP_NAME).app/Contents/Resources/etc/openfoam: Contents/Resources/etc/openfoam | build/$(APP_NAME).app/Contents/Info.plist
 	mkdir -p build/$(APP_NAME).app/Contents/Resources/etc
 	cp Contents/Resources/etc/openfoam build/$(APP_NAME).app/Contents/Resources/etc/
 	sed -i '' "s|{{APP_NAME}}|$(APP_NAME)|g" build/$(APP_NAME).app/Contents/Resources/etc/openfoam
 	sed -i '' "s|{{APP_HOMEPAGE}}|$(APP_HOMEPAGE)|g" build/$(APP_NAME).app/Contents/Resources/etc/openfoam
 
-build/$(APP_NAME).app/Contents/Resources/volume: Contents/Resources/volume build/$(APP_NAME).app/Contents/Resources/$(APP_NAME).dmg
-	mkdir -p build/$(APP_NAME).app/Contents/Resources
+build/$(APP_NAME).app/Contents/Resources/volume: Contents/Resources/volume build/$(APP_NAME).app/Contents/Resources/$(APP_NAME).dmg | build/$(APP_NAME).app/Contents/Info.plist
 	cp Contents/Resources/volume build/$(APP_NAME).app/Contents/Resources/
 	[ ! -d $(VOLUME) ] || hdiutil detach $(VOLUME)
 	hdiutil attach build/$(APP_NAME).app/Contents/Resources/$(APP_NAME).dmg
@@ -103,15 +105,14 @@ build/$(APP_NAME).app/Contents/Resources/volume: Contents/Resources/volume build
 	sed -i '' "s|{{VOLUME_ID}}|$$(cat $(VOLUME_ID_FILE))|g" build/$(APP_NAME).app/Contents/Resources/volume
 	hdiutil detach $(VOLUME)
 
-build/$(APP_NAME).app/Contents/Resources/LICENSE: LICENSE
-	mkdir -p build/$(APP_NAME).app/Contents/Resources
+build/$(APP_NAME).app/Contents/Resources/LICENSE: LICENSE | build/$(APP_NAME).app/Contents/Info.plist
 	cp LICENSE build/$(APP_NAME).app/Contents/Resources/
 
-build/$(APP_NAME).app/Contents/%: Contents/%
+build/$(APP_NAME).app/Contents/%: Contents/% | build/$(APP_NAME).app/Contents/Info.plist
 	mkdir -p $(@D)
 	cp -a $< $@
 
-build/$(APP_NAME).app/Contents/Resources/$(APP_NAME).dmg: build/$(APP_NAME)-build.sparsebundle build/$(APP_NAME).app/Contents/Resources/icon.icns fix_install_names.sh
+build/$(APP_NAME).app/Contents/Resources/$(APP_NAME).dmg: build/$(APP_NAME)-build.sparsebundle build/$(APP_NAME).app/Contents/Resources/icon.icns fix_install_names.sh | build/$(APP_NAME).app/Contents/Info.plist
 	[ ! -d $(VOLUME) ] || hdiutil detach $(VOLUME)
 	hdiutil attach \
 		build/$(APP_NAME)-build.sparsebundle \
@@ -139,7 +140,6 @@ else
 	$(error Invalid value for DEPENDENCIES_KIND)
 endif
 	rm -rf $(VOLUME)/.fseventsd || true
-	mkdir -p build/$(APP_NAME).app/Contents/Resources
 	hdiutil create \
 		-format $(DMG_FORMAT) \
 		-fs $(VOLUME_FILESYSTEM) \
